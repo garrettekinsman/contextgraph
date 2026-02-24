@@ -1,0 +1,115 @@
+"""
+reframing.py — Detect user reframing signals indicating context assembly failure.
+
+A reframing signal suggests the assistant failed to surface relevant prior
+context, forcing the user to re-establish it. High reframing rates are a
+proxy indicator that the tagger is producing poor tag assignments.
+
+Used by the quality agent as one half of the fitness signal for tagger evolution.
+"""
+
+import re
+from dataclasses import dataclass, field
+from typing import List
+
+
+@dataclass
+class ReframingSignal:
+    """Result of reframing detection on a single user message."""
+    is_reframing: bool
+    confidence: float          # 0.0–1.0; 0.25 per category matched
+    signals_found: List[str]   # matched pattern names, for debugging
+
+
+# ── Pattern categories (0.25 per category → max 1.0) ─────────────────────────
+
+_MEMORY_FAILURE = [
+    # Explicit memory failure phrases
+    r"\byou forgot\b",
+    r"\byou don['\u2019]t remember\b",
+    r"\bas i (mentioned|said|noted|told you)\b",
+    r"\bi already (told|mentioned|said|explained)\b",
+    r"\bwe (already |previously )?(discussed|talked about|covered|went over)\b",
+    r"\bgoing back to\b",
+    r"\bearlier (i |we )?(said|mentioned|discussed|talked)\b",
+    r"\bremember when\b",
+    r"\byou seem(ed)? to (have )?forgotten\b",
+]
+
+_RE_ESTABLISHMENT = [
+    # User re-provides context, implying prior context was lost
+    r"\bto recap\b",
+    r"\bto (quickly |briefly )?summarize (what we('ve| have) (so far|done|discussed))\b",
+    r"\bjust to bring you up to speed\b",
+    r"\blet me remind you\b",
+    r"\bas a reminder\b",
+    r"\bto refresh your memory\b",
+    r"\bcontext[:\s]+",          # "Context: here is what we have..."
+    r"\bbackground[:\s]+",
+    r"\bto give you some context\b",
+    r"\bin case you('ve| have) forgotten\b",
+]
+
+_FRUSTRATION = [
+    # Frustration + topic re-statement patterns
+    r"\bagain\b.{0,40}\b(fix|check|look at|update|change|tell|explain)\b",
+    r"\bstill\b.{0,40}\b(not working|broken|failing|wrong|missing)\b",
+    r"\bone more time\b",
+    r"\bonce more\b",
+    r"\bas i['\u2019]ve (said|mentioned) (before|multiple times|repeatedly|already)\b",
+    r"\bwhy (is it still|does it keep|won['\u2019]t it)\b",
+    r"\bi['\u2019]ve (already |repeatedly )?(asked|told|mentioned|said)\b",
+]
+
+_CONTEXT_PROVISION = [
+    # User opens by restating prior decisions/state before asking something new
+    r"^(so|okay|alright|right)[,.]? (we have|we['\u2019]ve|the current|our)\b",
+    r"^(as (we|you) (know|discussed|established|decided|agreed))[,.]",
+    r"^(given (what we|that we|our|the) (discussed|decided|built|have so far))[,.]",
+    r"^(since (we|you) (already|now|previously))\b",
+    r"^(building on (what|our)\b)",
+    r"^(continuing (from|where)\b)",
+]
+
+_CATEGORIES = [
+    ("memory_failure", _MEMORY_FAILURE),
+    ("re_establishment", _RE_ESTABLISHMENT),
+    ("frustration", _FRUSTRATION),
+    ("context_provision", _CONTEXT_PROVISION),
+]
+
+
+def detect_reframing(user_text: str) -> ReframingSignal:
+    """
+    Detect reframing signals in a user message.
+
+    Returns a ReframingSignal with is_reframing=True if any category fires
+    (confidence >= 0.25). Confidence is 0.25 per category matched, max 1.0.
+    """
+    text_lower = user_text.lower().strip()
+    signals_found: List[str] = []
+
+    for category_name, patterns in _CATEGORIES:
+        for pattern in patterns:
+            if re.search(pattern, text_lower, re.IGNORECASE | re.MULTILINE):
+                signals_found.append(category_name)
+                break  # one hit per category is enough
+
+    confidence = min(1.0, len(signals_found) * 0.25)
+    return ReframingSignal(
+        is_reframing=confidence >= 0.25,
+        confidence=confidence,
+        signals_found=signals_found,
+    )
+
+
+def reframing_rate(user_texts: List[str]) -> float:
+    """
+    Compute the fraction of messages that contain reframing signals.
+
+    Returns 0.0 (ideal) to 1.0 (every message is a reframe).
+    """
+    if not user_texts:
+        return 0.0
+    count = sum(1 for t in user_texts if detect_reframing(t).is_reframing)
+    return count / len(user_texts)
