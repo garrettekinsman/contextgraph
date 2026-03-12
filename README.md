@@ -119,13 +119,6 @@ Low-data tags (0.495): `api`, `debugging`, `personal`, `yapCAD`
 | `scripts/replay.py` | Ensemble retagging of full corpus |
 | `scripts/shadow.py` | Phase 2 shadow mode evaluation |
 
-## Documentation
-
-- [`docs/CONTEXT_TRANSITION.md`](docs/CONTEXT_TRANSITION.md) — Design doc:
-  transitioning from linear context to graph-primary assembly. Covers the
-  problem, transition phases, key design questions, and how this differs
-  from standard RAG.
-
 ## Setup
 
 ```bash
@@ -164,10 +157,20 @@ python3 -m pytest tests/ -v
   evolve taggers. Corpus: 812+ interactions, 16 active tags.
 - [x] **Phase 2 — Shadow Mode.** Validate graph assembly against linear baseline.
   Result: graph delivers more relevant context in fewer tokens.
-- [ ] **Phase 3 — Hybrid Injection.** Inject tag-retrieved context as a preamble
-  before the normal linear window. Lowest-risk integration point.
-- [ ] **Phase 4 — Graph-Primary.** Graph assembler becomes the primary context
-  source. Linear window shrinks to a small recency buffer.
+- [ ] **Phase 3 — Native Plugin (Plan of Record).** Build as an OpenClaw context
+  engine plugin. `/graph on|off` command switches between linear and graph modes
+  at runtime. Real A/B testing with comparison logging.
+  See [`docs/PLAN_B_NATIVE_PLUGIN.md`](docs/PLAN_B_NATIVE_PLUGIN.md) for the
+  full implementation plan.
+- [ ] **Phase 4 — Graph-Primary.** After validation, graph becomes the default
+  context engine. Linear window available as fallback.
+
+## Documentation
+
+- [`docs/CONTEXT_TRANSITION.md`](docs/CONTEXT_TRANSITION.md) — Design doc:
+  the problem with linear context, the DAG vision, transition phases.
+- [`docs/PLAN_B_NATIVE_PLUGIN.md`](docs/PLAN_B_NATIVE_PLUGIN.md) — Implementation
+  plan for the native OpenClaw context engine plugin (Plan of Record).
 
 ## License
 
