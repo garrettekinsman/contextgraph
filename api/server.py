@@ -35,6 +35,7 @@ class IngestRequest(BaseModel):
     assistant_text: str
     timestamp: float
     user_id: str = Field(None, nullable=True)
+    external_id: str = Field(None, nullable=True)  # OpenClaw AgentMessage.id or other external system ID
 
 class ToolState(BaseModel):
     last_turn_had_tools: bool
@@ -99,7 +100,8 @@ def ingest(request: IngestRequest):
             timestamp=request.timestamp,
             user_id=request.user_id or "default",
             tags=tags,
-            token_count=len(request.user_text.split()) + len(request.assistant_text.split())
+            token_count=len(request.user_text.split()) + len(request.assistant_text.split()),
+            external_id=request.external_id
         )
         store.add_message(message)
         return {"ingested": True, "tags": tags}
@@ -120,7 +122,10 @@ def assemble(request: AssembleRequest):
                 # Calculate token cost for the chain
                 total_tokens = 0
                 for msg_id in chain_ids:
-                    msg = store.get_by_id(msg_id)
+                    # Try external_id first (OpenClaw IDs), then internal ID
+                    msg = store.get_by_external_id(msg_id)
+                    if msg is None:
+                        msg = store.get_by_id(msg_id)
                     if msg:
                         total_tokens += _estimate_tokens(msg)
 
@@ -447,7 +452,10 @@ def create_pin(request: PinRequest):
         # Calculate total tokens for the pinned messages
         total_tokens = 0
         for msg_id in request.message_ids:
-            msg = store.get_by_id(msg_id)
+            # Try external_id first (OpenClaw IDs), then internal ID
+            msg = store.get_by_external_id(msg_id)
+            if msg is None:
+                msg = store.get_by_id(msg_id)
             if msg:
                 total_tokens += _estimate_tokens(msg)
 

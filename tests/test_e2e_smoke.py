@@ -58,6 +58,7 @@ class TestMultiTurnConversation:
 
         # Ingest the first exchange
         msg1_id = f"e2e-msg-1-{time.time()}"
+        msg1_external_id = f"e2e-external-1-{time.time()}"
         requests.post(
             f"{API_BASE_URL}/ingest",
             json={
@@ -66,7 +67,8 @@ class TestMultiTurnConversation:
                 "user_text": "Deploy the app to production",
                 "assistant_text": "I'll help you deploy the app. Let me start the deployment process.",
                 "timestamp": time.time(),
-                "user_id": "e2e-user"
+                "user_id": "e2e-user",
+                "external_id": msg1_external_id
             }
         )
 
@@ -95,6 +97,7 @@ class TestMultiTurnConversation:
 
         # Ingest turn 2 (assistant used tools)
         msg2_id = f"e2e-msg-2-{time.time()}"
+        msg2_external_id = f"e2e-external-2-{time.time()}"
         requests.post(
             f"{API_BASE_URL}/ingest",
             json={
@@ -103,11 +106,12 @@ class TestMultiTurnConversation:
                 "user_text": "Checking deployment status...",
                 "assistant_text": "Running deployment checks... [tool results here]",
                 "timestamp": time.time(),
-                "user_id": "e2e-user"
+                "user_id": "e2e-user",
+                "external_id": msg2_external_id
             }
         )
 
-        # Assemble with tool state (simulating active tool chain)
+        # Assemble with tool state (simulating active tool chain) using external_ids
         response2 = requests.post(
             f"{API_BASE_URL}/assemble",
             json={
@@ -116,7 +120,7 @@ class TestMultiTurnConversation:
                 "token_budget": 4000,
                 "tool_state": {
                     "last_turn_had_tools": True,
-                    "pending_chain_ids": [msg1_id, msg2_id]
+                    "pending_chain_ids": [msg1_external_id, msg2_external_id]
                 }
             }
         )
@@ -175,9 +179,9 @@ class TestMultiTurnConversation:
         data3 = response3.json()
 
         # Sticky pin should still be active (pinned messages in context)
-        # Note: sticky_count might be 0 if the messages weren't found by ID,
-        # but the pin itself should still exist
+        # With external_id support, sticky_count should be > 0
         print(f"  → sticky: {data3['sticky_count']}, recency: {data3['recency_count']}, topic: {data3['topic_count']}")
+        assert data3['sticky_count'] > 0, "Expected sticky messages to be in context"
 
         # Verify pin still exists
         pins_response3 = requests.get(f"{API_BASE_URL}/pins")

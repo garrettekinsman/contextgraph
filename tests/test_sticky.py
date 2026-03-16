@@ -331,6 +331,46 @@ class TestStickyLayerAssembly:
         assert result.sticky_count == 0
         assert result.recency_count > 0 or result.topic_count > 0
 
+    def test_sticky_layer_with_external_ids(self, store, assembler):
+        """Test that sticky layer works with external_ids (OpenClaw message IDs)."""
+        # Add messages with external_ids
+        external_ids = []
+        for i in range(5):
+            external_id = f"openclaw-msg-{i}"
+            msg = Message.new(
+                session_id="test",
+                user_id="test-user",
+                timestamp=float(i),
+                user_text=f"User message {i}",
+                assistant_text=f"Assistant response {i}",
+                tags=["test"],
+                token_count=50,
+                external_id=external_id
+            )
+            store.add_message(msg)
+            external_ids.append(external_id)
+
+        # Pin messages using external_ids (not internal store IDs)
+        pinned_external_ids = [external_ids[0], external_ids[2], external_ids[4]]
+
+        # Assemble with external_ids as pinned_message_ids
+        result = assembler.assemble(
+            incoming_text="Test query",
+            inferred_tags=["test"],
+            pinned_message_ids=pinned_external_ids
+        )
+
+        # Should have sticky messages found by external_id
+        assert result.sticky_count > 0
+        assert result.sticky_count == len(pinned_external_ids)
+
+        # Verify the pinned messages are in the result
+        pinned_messages = [m for m in result.messages if m.external_id in pinned_external_ids]
+        assert len(pinned_messages) == len(pinned_external_ids)
+
+        # Total tokens should not exceed budget
+        assert result.total_tokens <= 1000
+
 
 class TestReferenceDetection:
     """Tests for reference detection patterns."""

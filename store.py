@@ -22,11 +22,13 @@ class Message:
     assistant_text: str
     tags: List[str] = field(default_factory=list)
     token_count: int = 0
+    external_id: Optional[str] = None  # OpenClaw AgentMessage.id or other external system ID
 
     @classmethod
     def new(cls, session_id: str, user_id: str, timestamp: float,
             user_text: str, assistant_text: str,
-            tags: Optional[List[str]] = None, token_count: int = 0) -> "Message":
+            tags: Optional[List[str]] = None, token_count: int = 0,
+            external_id: Optional[str] = None) -> "Message":
         """Create a new Message with a generated UUID."""
         return cls(
             id=str(uuid.uuid4()),
@@ -37,6 +39,7 @@ class Message:
             assistant_text=assistant_text,
             tags=tags or [],
             token_count=token_count,
+            external_id=external_id,
         )
 
 
@@ -93,6 +96,18 @@ class MessageStore:
         """)
         conn.commit()
 
+        # Migration: add external_id column if it doesn't exist
+        self._migrate_external_id(conn)
+
+    def _migrate_external_id(self, conn: sqlite3.Connection) -> None:
+        """Add external_id column if it doesn't exist (backwards-compatible migration)."""
+        cursor = conn.execute("PRAGMA table_info(messages)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if "external_id" not in columns:
+            conn.execute("ALTER TABLE messages ADD COLUMN external_id TEXT")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_external_id ON messages(external_id)")
+            conn.commit()
+
     # ── helpers ───────────────────────────────────────────────────────────────
 
     def _row_to_message(self, row: sqlite3.Row, tags: List[str]) -> Message:
@@ -105,6 +120,7 @@ class MessageStore:
             assistant_text=row["assistant_text"],
             tags=tags,
             token_count=row["token_count"],
+            external_id=row["external_id"] if "external_id" in row.keys() else None,
         )
 
     def _fetch_tags_for(self, conn: sqlite3.Connection, message_id: str) -> List[str]:
@@ -135,10 +151,10 @@ class MessageStore:
         conn = self._conn()
         conn.execute(
             """INSERT INTO messages (id, session_id, user_id, timestamp,
-               user_text, assistant_text, token_count)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+               user_text, assistant_text, token_count, external_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (msg.id, msg.session_id, msg.user_id, msg.timestamp,
-             msg.user_text, msg.assistant_text, msg.token_count),
+             msg.user_text, msg.assistant_text, msg.token_count, msg.external_id),
         )
         for tag in msg.tags:
             conn.execute(
@@ -210,3 +226,31 @@ class MessageStore:
             "SELECT tag, COUNT(*) as cnt FROM tags GROUP BY tag ORDER BY cnt DESC"
         ).fetchall()
         return {r["tag"]: r["cnt"] for r in rows}
+
+    def get_by_external_id(self, external_id: str) -> Optional[Message]:
+        """Fetch a single message by external_id, or None if not found."""
+        conn = self._conn()
+        row = conn.execute(
+            "SELECT * FROM messages WHERE external_id = ?", (external_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        tags = self._fetch_tags_for(conn, row["id"])
+        return self._row_to_message(row, tags)
+
+    def get_by_external_ids(self, external_ids: List[str]) -> List[Message]:
+        """Fetch messages by external_ids. Returns list in same order as input, skipping missing IDs."""
+        if not external_ids:
+            return []
+        conn = self._conn()
+        placeholders = ",".join("?" * len(external_ids))
+        rows = conn.execute(
+            f"SELECT * FROM messages WHERE external_id IN ({placeholders})",
+            external_ids,
+        ).fetchall()
+        ids = [r["id"] for r in rows]
+        tags_map = self._fetch_tags_bulk(conn, ids)
+        # Build a map from external_id to Message
+        msg_by_ext_id = {r["external_id"]: self._row_to_message(r, tags_map[r["id"]]) for r in rows}
+        # Return in the same order as input, skipping missing
+        return [msg_by_ext_id[eid] for eid in external_ids if eid in msg_by_ext_id]

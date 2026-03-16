@@ -70,8 +70,12 @@ class ContextAssembler:
 
         if pinned_message_ids:
             sticky_budget = int(self.token_budget * 0.3)
+            # Try to fetch by external_id first (for OpenClaw IDs), fall back to internal ID
             for msg_id in pinned_message_ids:
-                msg = self.store.get_by_id(msg_id)
+                msg = self.store.get_by_external_id(msg_id)
+                if msg is None:
+                    # Fallback to internal ID lookup for backwards compatibility
+                    msg = self.store.get_by_id(msg_id)
                 if msg is None:
                     continue
                 cost = _estimate_tokens(msg)

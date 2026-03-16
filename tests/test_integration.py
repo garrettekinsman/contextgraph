@@ -36,7 +36,8 @@ def sample_messages(api_available):
             "user_text": user_text,
             "assistant_text": assistant_text,
             "timestamp": time.time() - (100 - i) * 60,  # Spread over time
-            "user_id": "test-user"
+            "user_id": "test-user",
+            "external_id": f"external-{i}"  # Add external_id for OpenClaw compatibility
         }
         for i, (user_text, assistant_text) in enumerate([
             ("Help me deploy the app", "I'll help you deploy. First, let's check the config."),
@@ -143,7 +144,7 @@ class TestAssemblyWithToolState:
             for pin in pins_data.get("active_pins", []):
                 requests.post(f"{API_BASE_URL}/unpin", json={"pin_id": pin["pin_id"]})
 
-        # Now assemble with tool state
+        # Now assemble with tool state, using external_ids
         response = requests.post(
             f"{API_BASE_URL}/assemble",
             json={
@@ -152,7 +153,7 @@ class TestAssemblyWithToolState:
                 "token_budget": 4000,
                 "tool_state": {
                     "last_turn_had_tools": True,
-                    "pending_chain_ids": [sample_messages[0]["id"], sample_messages[1]["id"]]
+                    "pending_chain_ids": [sample_messages[0]["external_id"], sample_messages[1]["external_id"]]
                 }
             }
         )
@@ -162,8 +163,8 @@ class TestAssemblyWithToolState:
 
         # Should have sticky messages now
         assert "sticky_count" in data
-        # Note: sticky_count might be 0 if the messages weren't found in the store
-        # This is expected behavior
+        # sticky_count should be > 0 now that we're using external_ids
+        assert data["sticky_count"] > 0
 
         # Check that a pin was created
         pins_response = requests.get(f"{API_BASE_URL}/pins")
@@ -173,6 +174,7 @@ class TestAssemblyWithToolState:
         # There should be at least one pin
         assert "active_pins" in pins_data
         assert isinstance(pins_data["active_pins"], list)
+        assert len(pins_data["active_pins"]) > 0
 
 
 @pytest.mark.integration
@@ -181,11 +183,11 @@ class TestPinLifecycle:
 
     def test_pin_lifecycle(self, api_available, sample_messages):
         """Test 5: Pin lifecycle - create, list, remove."""
-        # Create a pin
+        # Create a pin using external_ids
         create_response = requests.post(
             f"{API_BASE_URL}/pin",
             json={
-                "message_ids": [sample_messages[0]["id"], sample_messages[1]["id"]],
+                "message_ids": [sample_messages[0]["external_id"], sample_messages[1]["external_id"]],
                 "reason": "Test pin for deployment context",
                 "ttl_turns": 20
             }
@@ -241,11 +243,11 @@ class TestPinTTLExpiry:
 
     def test_pin_ttl_expiry(self, api_available, sample_messages):
         """Test 6: Pin TTL expiry - pin expires after ttl_turns."""
-        # Create a pin with very short TTL
+        # Create a pin with very short TTL using external_id
         create_response = requests.post(
             f"{API_BASE_URL}/pin",
             json={
-                "message_ids": [sample_messages[0]["id"]],
+                "message_ids": [sample_messages[0]["external_id"]],
                 "reason": "Short-lived test pin",
                 "ttl_turns": 1
             }
@@ -290,11 +292,11 @@ class TestThreeLayerBudget:
 
     def test_three_layer_budget_allocation(self, api_available, sample_messages):
         """Test 7: Three-layer budget - sticky_count > 0 and budget split correctly."""
-        # Create a pin
+        # Create a pin using external_ids
         create_response = requests.post(
             f"{API_BASE_URL}/pin",
             json={
-                "message_ids": [sample_messages[0]["id"], sample_messages[1]["id"]],
+                "message_ids": [sample_messages[0]["external_id"], sample_messages[1]["external_id"]],
                 "reason": "Test three-layer budget",
                 "ttl_turns": 10
             }
