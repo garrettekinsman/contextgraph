@@ -57,17 +57,17 @@ def detect_url(text: str) -> bool:
     return bool(re.search(url_pattern, text))
 
 def detect_question(text: str) -> bool:
-    """Detect questions via '?' or question words."""
-    question_words = {
-        "who", "what", "when", "where", "why", "how", "whom", "which", "is",
-        "are", "was", "were", "do", "does", "did", "can", "could", "would",
-        "should", "will", "shall", "have", "has", "had"
-    }
-    words = re.findall(r"\b\w+\b", text.lower())
-    # Require ? mark OR question word at START of sentence
-    has_question_mark = "?" in text
-    starts_with_q = bool(words) and words[0] in question_words
-    return has_question_mark or starts_with_q
+    """Detect questions via '?' in last 3 non-quoted lines."""
+    # Split into lines and filter out quoted lines (lines starting with >)
+    lines = text.split('\n')
+    non_quoted = [line for line in lines if not line.strip().startswith('>')]
+
+    # Check only last 3 non-quoted lines for question mark
+    last_3_lines = non_quoted[-3:] if len(non_quoted) >= 3 else non_quoted
+    for line in last_3_lines:
+        if '?' in line:
+            return True
+    return False
 
 def extract_stopwords(words: List[str]) -> List[str]:
     """Remove stopwords from word list."""

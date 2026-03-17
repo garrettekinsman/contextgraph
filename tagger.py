@@ -6,10 +6,12 @@ structured program over MessageFeatures. This is the "genome" prototype —
 future GP-evolved taggers will follow the same interface.
 """
 
+import re
 from dataclasses import dataclass
 from typing import Callable, List, Optional, Set
 
 from features import MessageFeatures
+from tag_registry import get_registry
 
 
 # ── Tag vocabulary (seeded-open core) ────────────────────────────────────────
@@ -24,7 +26,7 @@ CORE_TAGS = {
     # Project-specific (extend as needed)
     "voice-pwa", "shopping-list", "openclaw", "yapCAD",
     # General
-    "planning", "research", "question", "personal",
+    "planning", "research", "question", "personal", "has-url",
 }
 
 
@@ -48,9 +50,29 @@ def _any_entity_match(features: MessageFeatures, terms: List[str]) -> bool:
 
 
 def _text_contains_any(user_text: str, assistant_text: str, terms: List[str]) -> bool:
-    """True if any term appears in the combined message text (case-insensitive)."""
+    """True if any term appears in the combined message text (case-insensitive) using word-boundary matching."""
     combined = (user_text + " " + assistant_text).lower()
-    return any(t.lower() in combined for t in terms)
+    for term in terms:
+        pattern = r"\b" + re.escape(term.lower()) + r"\b"
+        if re.search(pattern, combined):
+            return True
+    return False
+
+
+def _strip_metadata(text: str) -> str:
+    """Remove OpenClaw metadata envelopes and system boilerplate from text."""
+    # Remove JSON metadata blocks
+    text = re.sub(r"Conversation info \(untrusted metadata\):.*?```\n", "", text, flags=re.DOTALL)
+    text = re.sub(r"Sender \(untrusted metadata\):.*?```\n", "", text, flags=re.DOTALL)
+    text = re.sub(r"Replied message \(untrusted.*?```\n", "", text, flags=re.DOTALL)
+    text = re.sub(r"```json\n\{[^}]*\}\n```", "", text, flags=re.DOTALL)
+    # Remove system prompt markers
+    text = re.sub(r"## Runtime\n.*?(?=\n## |\Z)", "", text, flags=re.DOTALL)
+    text = re.sub(r"## Project Context\n.*?(?=\n## |\Z)", "", text, flags=re.DOTALL)
+    # Remove common boilerplate phrases
+    text = re.sub(r"\[Voice PWA\]", "", text)
+    text = re.sub(r"\[cron:.*?\]", "", text)
+    return text.strip()
 
 
 # ── Rule definitions ──────────────────────────────────────────────────────────
@@ -78,8 +100,10 @@ RULES: List[TagRule] = [
     TagRule(
         name="security",
         predicate=lambda f, u, a: _text_contains_any(
-            u, a, ["security", "auth", "token", "credential", "allowlist",
-                   "permission", "vulnerability", "cve", "exploit", "attack"]
+            u, a, ["security vulnerability", "authentication failure", "credential leak",
+                   "allowlist", "permission denied", "cve-", "exploit", "attack vector",
+                   "zero-day", "injection attack", "access control", "privilege escalation",
+                   "security token"]
         ),
         tags=["security"],
     ),
@@ -88,8 +112,10 @@ RULES: List[TagRule] = [
     TagRule(
         name="ai-llm",
         predicate=lambda f, u, a: _text_contains_any(
-            u, a, ["llm", "claude", "gpt", "anthropic", "openai", "model",
-                   "prompt", "context", "embedding", "inference", "token"]
+            u, a, ["llm", "large language model", "claude ai", "chatgpt",
+                   "anthropic api", "openai api", "language model", "embedding model",
+                   "inference server", "fine-tuning", "transformer architecture",
+                   "neural network"]
         ),
         tags=["ai", "llm"],
     ),
@@ -98,11 +124,12 @@ RULES: List[TagRule] = [
     TagRule(
         name="context-management",
         predicate=lambda f, u, a: _text_contains_any(
-            u, a, ["context window", "compaction", "tagging", "tag-context",
-                   "context management", "rl", "reinforcement learning",
-                   "tagger", "quality agent", "dag"]
+            u, a, ["context window", "compaction", "tag-context",
+                   "context management", "reinforcement learning",
+                   "quality agent", "context graph", "context budget",
+                   "context assembly"]
         ),
-        tags=["context-management", "rl", "ai"],
+        tags=["context-management"],
     ),
 
     # Voice PWA
@@ -139,8 +166,9 @@ RULES: List[TagRule] = [
     TagRule(
         name="devops",
         predicate=lambda f, u, a: _text_contains_any(
-            u, a, ["deploy", "launchd", "launchctl", "docker", "vercel",
-                   "build", "npm run", "git push", "restart", "daemon"]
+            u, a, ["deploy to", "launchd", "launchctl", "docker compose",
+                   "docker run", "npm run build", "git push", "systemctl",
+                   "daemon reload", "ci/cd pipeline"]
         ),
         tags=["devops", "deployment"],
     ),
@@ -149,7 +177,7 @@ RULES: List[TagRule] = [
     TagRule(
         name="contains-url",
         predicate=lambda f, u, a: f.contains_url,
-        tags=["research"],
+        tags=["has-url"],
         confidence=0.5,
     ),
 
@@ -165,8 +193,10 @@ RULES: List[TagRule] = [
     TagRule(
         name="research-planning",
         predicate=lambda f, u, a: _text_contains_any(
-            u, a, ["research", "proposal", "design", "architecture", "plan",
-                   "prototype", "spec", "document", "analysis"]
+            u, a, ["research paper", "research proposal", "system design doc",
+                   "software architecture doc", "project plan", "prototype build",
+                   "design document", "technical specification", "data analysis report",
+                   "literature review"]
         ),
         tags=["research", "planning"],
     ),
@@ -219,8 +249,16 @@ class StructuredProgramTagger:
 
         avg_confidence = (sum(confidences) / len(confidences)) if confidences else 0.0
 
-        # Canonicalize: only emit tags in CORE_TAGS (open extension possible later)
-        canonical = [t for t in sorted(fired_tags) if t in CORE_TAGS]
+        # Get active tags from registry (core + candidate)
+        registry = get_registry()
+        active_tags = registry.get_active_tags()
+
+        # Canonicalize: only emit tags in active_tags
+        canonical = [t for t in sorted(fired_tags) if t in active_tags]
+
+        # Track dropped tags and discover new candidates
+        dropped = [t for t in fired_tags if t not in active_tags]
+        registry.discover(canonical, dropped, features.entities)
 
         return TagAssignment(
             tags=canonical,
@@ -237,4 +275,6 @@ default_tagger = StructuredProgramTagger()
 def assign_tags(features: MessageFeatures,
                 user_text: str, assistant_text: str) -> List[str]:
     """Convenience function using the default tagger."""
+    user_text = _strip_metadata(user_text)
+    assistant_text = _strip_metadata(assistant_text)
     return default_tagger.assign(features, user_text, assistant_text).tags
