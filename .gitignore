@@ -13,3 +13,4 @@ data/quality-state.json
 data/harvester-state.json
 data/shadow-report.json
 data/gp-tagger.pkl
+plugin/node_modules/

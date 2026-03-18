@@ -6,8 +6,17 @@
   "main": "index.ts",
   "author": "Menehune One",
   "license": "MIT",
-  "keywords": ["openclaw", "plugin", "context-engine", "contextgraph"],
+  "keywords": [
+    "openclaw",
+    "plugin",
+    "context-engine",
+    "contextgraph"
+  ],
   "engines": {
     "node": ">=22"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "typescript": "^5.9.3"
   }
 }

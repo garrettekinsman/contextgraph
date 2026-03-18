@@ -145,6 +145,124 @@ python3 cli.py recent [--n 10]
 python3 scripts/shadow.py --report --verbose
 ```
 
+## Deployment (Python API as a Service)
+
+The Python API (`api/server.py`) must be running for the OpenClaw plugin to function.
+It's managed as a **launchd service** (`com.glados.tag-context`) so it survives reboots
+and restarts automatically on crash.
+
+### First-time setup
+
+```bash
+cd ~/Projects/tag-context
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+Create the launchd plist at `~/Library/LaunchAgents/com.glados.tag-context.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.glados.tag-context</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/rich/Projects/tag-context/venv/bin/python3</string>
+        <string>-m</string>
+        <string>uvicorn</string>
+        <string>api.server:app</string>
+        <string>--host</string>
+        <string>127.0.0.1</string>
+        <string>--port</string>
+        <string>8300</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/rich/Projects/tag-context</string>
+    <key>StandardOutPath</key>
+    <string>/tmp/tag-context.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/tag-context.log</string>
+    <key>KeepAlive</key>
+    <true/>
+    <key>RunAtLoad</key>
+    <true/>
+</dict>
+</plist>
+```
+
+Load it:
+
+```bash
+launchctl load ~/Library/LaunchAgents/com.glados.tag-context.plist
+```
+
+### Service management
+
+```bash
+# Status (PID present = running, just exit code = crashed)
+launchctl list | grep tag-context
+
+# Start / stop
+launchctl start com.glados.tag-context
+launchctl stop com.glados.tag-context
+
+# Restart (e.g. after code changes — must unload+load to re-read plist)
+launchctl unload ~/Library/LaunchAgents/com.glados.tag-context.plist
+launchctl load ~/Library/LaunchAgents/com.glados.tag-context.plist
+
+# Logs
+tail -f /tmp/tag-context.log
+```
+
+### Health check
+
+```bash
+curl http://localhost:8300/health
+# → {"status":"ok","messages_in_store":..., "engine":"contextgraph"}
+```
+
+> **Note:** Never run the server manually (`python3 api/server.py` or `uvicorn ...`) while
+> the launchd service is also active — port 8300 conflicts will cause both to crash-loop.
+> Always use `launchctl stop` first, or `launchctl unload` to disable launchd management.
+
+### OpenClaw plugin deployment
+
+The plugin lives in `plugin/index.ts`. After making changes:
+
+```bash
+# Copy updated plugin to OpenClaw extension directory
+cp plugin/index.ts ~/.openclaw/extensions/contextgraph/index.ts
+
+# Restart OpenClaw gateway to load the new plugin
+openclaw gateway restart
+```
+
+Toggle graph mode at runtime (in chat):
+```
+/graph on    # enable context graph
+/graph off   # fall back to linear window
+/graph       # show current status + API health
+```
+
+### Comparison logging
+
+With graph mode on, after each turn the plugin calls `/compare` and appends a JSON
+record to `~/.tag-context/comparison-log.jsonl` with:
+- Graph vs. linear message/token counts
+- Tags used for retrieval
+- Sticky pin count (active tool chains)
+- Whether the last turn had tool calls
+
+```bash
+tail -f ~/.tag-context/comparison-log.jsonl | python3 -m json.tool
+# or via API:
+curl http://localhost:8300/comparison-log
+```
+
 ## Tests
 
 ```bash
@@ -157,9 +275,9 @@ python3 -m pytest tests/ -v
   evolve taggers. Corpus: 812+ interactions, 16 active tags.
 - [x] **Phase 2 — Shadow Mode.** Validate graph assembly against linear baseline.
   Result: graph delivers more relevant context in fewer tokens.
-- [ ] **Phase 3 — Native Plugin (Plan of Record).** Build as an OpenClaw context
-  engine plugin. `/graph on|off` command switches between linear and graph modes
-  at runtime. Real A/B testing with comparison logging.
+- [x] **Phase 3 — Native Plugin (Plan of Record).** OpenClaw context engine plugin
+  live. `/graph on|off` toggles at runtime. Sticky threads auto-activate on tool
+  chains. Comparison logging writes `~/.tag-context/comparison-log.jsonl` every turn.
   See [`docs/PLAN_B_NATIVE_PLUGIN.md`](docs/PLAN_B_NATIVE_PLUGIN.md) for the
   full implementation plan.
 - [ ] **Phase 4 — Graph-Primary.** After validation, graph becomes the default
