@@ -240,6 +240,19 @@ tail -f ~/.tag-context/comparison-log.jsonl | python3 -m json.tool
 curl http://localhost:8300/comparison-log
 ```
 
+## Logger / Client Bridge
+
+The `contextgraph-logger/` package provides standalone tools for ingesting OpenClaw conversations and memory files into the ContextGraph engine, as well as pulling assembled context back for injection into system prompts.
+
+**Rule:** This package only calls ContextGraph's HTTP API. It never modifies the server code.
+
+See [`contextgraph-logger/README.md`](contextgraph-logger/README.md) for setup and usage.
+
+Key components:
+- **harvester.py** — Batch ingest: OpenClaw session DB + memory files → `/ingest` (idempotent, content-hash dedup)
+- **live_ingest.py** — Per-turn shim: POST one exchange → `/ingest`
+- **context_pull.py** — Query ContextGraph `/assemble` → formatted markdown context block
+
 ## Tests
 
 ```bash

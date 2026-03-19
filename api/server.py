@@ -1,5 +1,6 @@
 import sys
 import time
+import re
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -24,6 +25,37 @@ from typing import Optional
 from collections import Counter
 
 app = FastAPI()
+
+# ── Security: Input Sanitization ───────────────────────────────────────────────
+
+def _sanitize_content(text: str) -> str:
+    """
+    Remove prompt injection patterns from user-provided text before storage.
+
+    Prevents adversarial content from influencing retrieval context by stripping
+    common jailbreak patterns and instruction override attempts.
+    """
+    if not text:
+        return text
+
+    # Patterns to strip (case-insensitive)
+    injection_patterns = [
+        r"ignore\s+previous\s+instructions",
+        r"ignore\s+all\s+previous\s+instructions",
+        r"disregard\s+your\s+instructions",
+        r"disregard\s+previous\s+instructions",
+        r"system\s+prompt:",
+        r"you\s+are\s+now\s+",
+        r"forget\s+your\s+instructions",
+        r"new\s+instructions:",
+        r"override\s+instructions",
+    ]
+
+    sanitized = text
+    for pattern in injection_patterns:
+        sanitized = re.sub(pattern, "", sanitized, flags=re.IGNORECASE)
+
+    return sanitized.strip()
 
 class TagRequest(BaseModel):
     user_text: str
@@ -96,17 +128,22 @@ def ingest(request: IngestRequest):
         # Envelope text (message_id, sender_id, timestamps) is noise for
         # tag inference and retrieval — stripping prevents tag pollution.
         clean_user = strip_envelope(request.user_text)
-        features = extract_features(clean_user, request.assistant_text)
-        tags = ensemble.assign(features, clean_user, request.assistant_text).tags
+
+        # Security: Sanitize inputs to prevent prompt injection attacks
+        sanitized_user = _sanitize_content(clean_user)
+        sanitized_assistant = _sanitize_content(request.assistant_text)
+
+        features = extract_features(sanitized_user, sanitized_assistant)
+        tags = ensemble.assign(features, sanitized_user, sanitized_assistant).tags
         message = Message(
             id=message_id,
             session_id=request.session_id,
-            user_text=clean_user,
-            assistant_text=request.assistant_text,
+            user_text=sanitized_user,
+            assistant_text=sanitized_assistant,
             timestamp=request.timestamp,
             user_id=request.user_id or "default",
             tags=tags,
-            token_count=len(clean_user.split()) + len(request.assistant_text.split()),
+            token_count=len(sanitized_user.split()) + len(sanitized_assistant.split()),
             external_id=request.external_id
         )
         store.add_message(message)
@@ -633,4 +670,5 @@ def get_pins():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8350)
+    # Security: Bind to localhost only. Use reverse proxy for remote access.
+    uvicorn.run(app, host="127.0.0.1", port=8350)
