@@ -268,6 +268,9 @@ python3 -m pytest tests/ -v
 
 ## Documentation
 
+- [`docs/AGENT_SETUP.md`](docs/AGENT_SETUP.md) — **Operational guide for agents:**
+  full setup, service management, nightly scripts, diagnostics, and transition
+  status. Start here if you're taking over maintenance.
 - [`docs/CONTEXT_TRANSITION.md`](docs/CONTEXT_TRANSITION.md) — Design doc:
   the problem with linear context, the DAG vision, transition phases.
 - [`docs/PLAN_B_NATIVE_PLUGIN.md`](docs/PLAN_B_NATIVE_PLUGIN.md) — Implementation
