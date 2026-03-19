@@ -17,3 +17,6 @@ plugin/node_modules/
 
 # Rendered launchd plists (contain local paths) — use service/*.plist.template + install-service.sh
 service/*.plist
+
+# Live runtime state — grows with usage, contains emergent tags from real conversations
+data/tag_registry.json

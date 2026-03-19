@@ -3,7 +3,7 @@
 Directed acyclic context graph for LLM context management — tag-based
 retrieval replacing linear sliding windows.
 
-**Status:** Phase 2 (Shadow Mode) complete — graph assembly validated against linear baseline.
+**Status:** Phase 3 complete — native OpenClaw plugin live; shadow memory injection in validation (targeting MEMORY.md integration).
 
 ## Problem
 
@@ -118,6 +118,7 @@ Low-data tags (0.495): `api`, `debugging`, `personal`, `yapCAD`
 | `scripts/evolve.py` | GP tagger retraining |
 | `scripts/replay.py` | Ensemble retagging of full corpus |
 | `scripts/shadow.py` | Phase 2 shadow mode evaluation |
+| `scripts/update_memory_dynamic.py` | Inject assembled context into MEMORY.md (shadow → live) |
 
 ## Setup
 
@@ -256,6 +257,12 @@ python3 -m pytest tests/ -v
   chains. Comparison logging writes `~/.tag-context/comparison-log.jsonl` every turn.
   See [`docs/PLAN_B_NATIVE_PLUGIN.md`](docs/PLAN_B_NATIVE_PLUGIN.md) for the
   full implementation plan.
+- [ ] **Phase 3.5 — Shadow Memory Injection.** `scripts/update_memory_dynamic.py`
+  queries `/assemble` nightly and writes a `## Dynamic Context` section into a
+  shadow memory file for validation. Once output quality is confirmed stable (target:
+  ~1 day of shadow runs), the script will switch to writing directly to `MEMORY.md`
+  via `--live` flag. Replace-section logic uses HTML comment markers so the curated
+  long-term memory above is never touched.
 - [ ] **Phase 4 — Graph-Primary.** After validation, graph becomes the default
   context engine. Linear window available as fallback.
 
