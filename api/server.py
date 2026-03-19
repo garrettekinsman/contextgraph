@@ -135,6 +135,21 @@ def assemble(request: AssembleRequest):
                     total_tokens=total_tokens,
                     ttl_turns=10
                 )
+            else:
+                # Server-side fallback: plugin lost state (e.g. gateway restart).
+                # pending_chain_ids is empty but last_turn_had_tools=True, so we
+                # know a tool chain was active. Pin the most recent messages from
+                # the store as a best-effort recovery.
+                recent = store.get_recent(5)
+                if recent:
+                    fallback_ids = [msg.id for msg in recent]
+                    total_tokens = sum(_estimate_tokens(msg) for msg in recent)
+                    pin_manager.update_or_create_tool_chain_pin(
+                        message_ids=fallback_ids,
+                        reason="Active tool chain (server-side fallback: chain IDs lost on restart)",
+                        total_tokens=total_tokens,
+                        ttl_turns=10
+                    )
 
         # Handle reference detection
         if detect_reference(request.user_text):
