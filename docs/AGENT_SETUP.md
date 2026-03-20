@@ -31,6 +31,7 @@ Local: ~/Projects/tag-context
 - **Phase 3.5 in progress** — shadow memory injection running, targeting
   `MEMORY.md` directly once output quality is confirmed stable
 - **All 145 tests passing** (`python3 -m pytest tests/ -v`)
+- **v1.1 fixes applied** — envelope stripping, IDF tag filtering, `/quality` endpoint
 
 ---
 
@@ -238,6 +239,7 @@ evolving a new GP tagger.
 | `scripts/evolve.py` | Retrain GP tagger |
 | `scripts/replay.py` | Retag full corpus |
 | `scripts/update_memory_dynamic.py` | Shadow/live memory injection |
+| `utils/text.py` | `strip_envelope()` — strips channel metadata before indexing/querying |
 | `scripts/install-service.sh` | launchd service installer |
 | `service/*.plist.template` | launchd plist templates (path-substituted) |
 | `data/messages.db` | SQLite DB (gitignored) |
@@ -278,14 +280,38 @@ ls ~/.openclaw/extensions/contextgraph/
 openclaw gateway restart
 ```
 
+### Retrieval quality check
+
+Before concluding retrieval is healthy, always check `/quality` — not just `/health`:
+
+```bash
+curl http://localhost:8300/quality | python3 -m json.tool
+```
+
+Key fields:
+- `zero_return_rate` — fraction of recent turns returning 0 graph messages. >0.25 = alert.
+- `tag_entropy` — how evenly tags are distributed. <2.0 = over-generic tags, topic layer degraded.
+- `alert` / `alert_reasons` — automated summary.
+
+**`/health` returning `{"status":"ok"}` does NOT mean retrieval is working.** The service
+can be up and indexed while silently returning empty context due to tag pollution or corpus
+issues. Always check `/quality` when diagnosing.
+
 ### Context quality degraded / assembler returning noise
 
 Likely causes:
-1. **New cron/heartbeat turns in DB** — harvester may have ingested noisy
+1. **Envelope pollution in old data** — if corpus was ingested before v1.1, stored
+   `user_text` may contain OpenClaw channel metadata (Sender, message_id, etc.). This
+   degrades tag inference and retrieval. Re-ingest affected records or run `scripts/replay.py`
+   to retag (stripping is now applied at ingest time automatically in v1.1+).
+2. **Over-generic tags** — IDF filtering (>30% corpus frequency = skip) is applied
+   automatically in the assembler. If all your tags are high-frequency, the fallback
+   uses the lowest-frequency half. Check `zero_return_rate` via `/quality`.
+3. **New cron/heartbeat turns in DB** — harvester may have ingested noisy
    sessions. Check `python3 cli.py recent --n 20` for garbage records.
-2. **Oversized records blocking assembler budget** — check if any record
+4. **Oversized records blocking assembler budget** — check if any record
    has token count > 5000 (`python3 cli.py recent --n 5` and inspect).
-3. **tag_registry diverged** — run `python3 scripts/replay.py` to retag.
+5. **tag_registry diverged** — run `python3 scripts/replay.py` to retag.
 
 ### Comparison log growing too large
 

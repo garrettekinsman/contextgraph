@@ -3,7 +3,7 @@
 Directed acyclic context graph for LLM context management — tag-based
 retrieval replacing linear sliding windows.
 
-**Status:** Phase 3 complete — native OpenClaw plugin live; shadow memory injection in validation (targeting MEMORY.md integration).
+**Status:** Phase 3 complete — native OpenClaw plugin live; shadow memory injection in validation (targeting MEMORY.md integration). Recent fixes: envelope stripping, IDF tag filtering, `/quality` health endpoint.
 
 ## Problem
 
@@ -118,6 +118,7 @@ Low-data tags (0.495): `api`, `debugging`, `personal`, `yapCAD`
 | `scripts/evolve.py` | GP tagger retraining |
 | `scripts/replay.py` | Ensemble retagging of full corpus |
 | `scripts/shadow.py` | Phase 2 shadow mode evaluation |
+| `utils/text.py` | Shared text utilities: `strip_envelope()` strips channel metadata before indexing |
 | `scripts/update_memory_dynamic.py` | Inject assembled context into MEMORY.md (shadow → live) |
 
 ## Setup
@@ -198,9 +199,18 @@ tail -f /tmp/tag-context.log
 ### Health check
 
 ```bash
+# Service up?
 curl http://localhost:8300/health
 # → {"status":"ok","messages_in_store":..., "engine":"contextgraph"}
+
+# Retrieval actually working?
+curl http://localhost:8300/quality
+# → {"zero_return_rate":0.04,"tag_entropy":3.6,"alert":false,...}
 ```
+
+> **Note:** `/health` tells you the service is running. `/quality` tells you whether
+> retrieval is actually working. Always check both — a service can be healthy while
+> silently returning empty context. See [Retrieval Quality Monitoring](#retrieval-quality-monitoring).
 
 > **Note:** Never run the server manually (`python3 api/server.py` or `uvicorn ...`) while
 > the launchd service is also active — port 8300 conflicts will cause both to crash-loop.
@@ -214,9 +224,13 @@ The plugin lives in `plugin/index.ts`. After making changes:
 # Copy updated plugin to OpenClaw extension directory
 cp plugin/index.ts ~/.openclaw/extensions/contextgraph/index.ts
 
-# Restart OpenClaw gateway to load the new plugin
-openclaw gateway restart
+# Graceful reload (keeps active sessions alive)
+openclaw gateway reload
 ```
+
+> ⚠️ **Do not use `openclaw gateway stop` or `gateway restart`** — these orphan the
+> LaunchAgent and disconnect all active sessions (Telegram, Discord, Voice, etc.).
+> Use `gateway reload` (SIGUSR1) instead. See [Notes for Agents](#notes-for-agents).
 
 Toggle graph mode at runtime (in chat):
 ```
@@ -224,6 +238,39 @@ Toggle graph mode at runtime (in chat):
 /graph off   # fall back to linear window
 /graph       # show current status + API health
 ```
+
+### Retrieval Quality Monitoring
+
+The `/quality` endpoint provides retrieval health metrics that `/health` does not:
+
+```bash
+curl http://localhost:8300/quality | python3 -m json.tool
+```
+
+```json
+{
+  "turns_evaluated": 50,
+  "zero_return_turns": 2,
+  "zero_return_rate": 0.04,
+  "avg_topic_messages": 3.2,
+  "tag_entropy": 3.65,
+  "corpus_size": 1024,
+  "top_tags": [...],
+  "alert": false,
+  "alert_reasons": []
+}
+```
+
+**Alert thresholds:**
+- `zero_return_rate > 0.25` — more than 25% of recent turns returned no graph context
+- `tag_entropy < 2.0` — tags are over-generic, topic layer is near-useless
+
+When `alert: true`, check `alert_reasons` for which threshold was breached.
+
+**Common causes of high zero_return_rate:**
+1. **Envelope pollution** — channel metadata was being indexed as user text (fixed as of v1.1)
+2. **Over-generic tags** — all messages tagged the same; IDF filtering mitigates this automatically
+3. **Empty corpus** — not enough messages stored yet for topic retrieval to have anything to return
 
 ### Comparison logging
 
@@ -239,6 +286,29 @@ tail -f ~/.tag-context/comparison-log.jsonl | python3 -m json.tool
 # or via API:
 curl http://localhost:8300/comparison-log
 ```
+
+## Notes for Agents
+
+### ⚠️ Gateway Restart
+
+Do NOT use `openclaw gateway stop` / `gateway restart` to reload the plugin.
+These commands disconnect all active sessions and orphan the LaunchAgent.
+
+Use instead:
+```bash
+openclaw gateway reload   # SIGUSR1 graceful reload, keeps connections alive
+```
+
+### ⚠️ `/health` ≠ Retrieval Quality
+
+`/health` returns `{"status":"ok"}` even when the graph is silently returning
+empty context. Always check `/quality` when diagnosing retrieval problems:
+
+```bash
+curl http://localhost:8300/quality | python3 -c "import json,sys; q=json.load(sys.stdin); print('alert:', q['alert'], q.get('alert_reasons'))"
+```
+
+---
 
 ## Tests
 
