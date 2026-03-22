@@ -1,0 +1,34 @@
+{
+  "dependencies": [],
+  "files": {
+    "README.md": {
+      "sha256": "23e2bcc0d77a024e125a001f0fe5ceafbba5ff030b7f9adae1439a7c90b8f0a4",
+      "size": 1187
+    },
+    "index.ts": {
+      "sha256": "88ac343d5db3614733a706a03e2a3f555000f80030f06e58324afbdbe4599a6c",
+      "size": 19820
+    },
+    "openclaw.plugin.json": {
+      "sha256": "b4359997fb0673aa30b22ef2e6c1c27d3b8153181aabbdfd55e515507404ae19",
+      "size": 453
+    },
+    "package.json": {
+      "sha256": "980e495b22fcae2a6ce4e34e7d63350b6646ad05408126e8e5d590cd0fc6799a",
+      "size": 373
+    }
+  },
+  "signature": "-----BEGIN SSH SIGNATURE-----\nU1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgNuswyJOGFPQWjGX+y4wcc8x87p\nzRpshnL9nYmRvHq0EAAAAOc2tpbGwtbWFuaWZlc3QAAAAAAAAABnNoYTUxMgAAAFMAAAAL\nc3NoLWVkMjU1MTkAAABAIVChnhCjQZBOMMnvmSYTkl+PPzRrO8C4fA5Ivyim9kbZ7sSgY6\n1jokEpb8AqZenHZzYZ2pIFE6iXMwkSkQdkDw==\n-----END SSH SIGNATURE-----\n",
+  "signer": {
+    "algorithm": "ssh-ed25519",
+    "identity": "garrett@garrettekinsman.com",
+    "key_fingerprint": "SHA256:DBo7oGhrsLbtbSbY4jrpBUfk0d5eU9g4PY84TvURtrQ"
+  },
+  "skill": {
+    "author": "garrett@garrettekinsman.com",
+    "name": "plugin",
+    "version": "0.0.0"
+  },
+  "timestamp": "2026-03-17T05:44:43.600831+00:00",
+  "version": "1.0.0"
+}
