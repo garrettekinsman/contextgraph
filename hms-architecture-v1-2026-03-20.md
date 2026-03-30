@@ -593,7 +593,7 @@ def probe_all() -> MachineState:
         result = subprocess.run(
             ["ssh", "-i", "~/.ssh/framework_key",
              "-o", "ConnectTimeout=5",
-             "gk@100.112.143.23",
+             "gk@<FRAMEWORK1_HOST>",
              "ollama ps 2>/dev/null; echo '---'; cat /proc/loadavg"],
             capture_output=True, text=True, timeout=8
         )
